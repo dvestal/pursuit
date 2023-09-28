@@ -1,6 +1,11 @@
 # pursuit
 Game
 
+```
+pip install -r requirements.txt
+python main.py
+```
+
 ### Links
 Entity Component System (ECS)
 https://github.com/benmoran56/esper/
