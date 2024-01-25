@@ -1,0 +1,7 @@
+{% if users %}
+{% for user in users %}
+<li>{{user.username}}</li>
+{% endfor %}
+{% else %}
+<li>Everyone Offline</li>
+{% endif %}
