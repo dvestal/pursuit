@@ -3,6 +3,7 @@
 import uuid
 
 from flask import Blueprint
+import sqlalchemy
 from werkzeug.security import check_password_hash
 
 from . import app, db, sio
@@ -19,61 +20,68 @@ game_world = None
 # Game Update Background Task
 ###############################################################################
 
+def wait_for_bot_connections():
+    while True: # Bot Connection Check Loop
+        print("Bot Connection Check Loop")
+        with app.app_context():
+            # Check for connected bots. If the four are not yet connected then just wait.
+            query = db.session.query(User).filter(User.bot.is_(True), User.online.is_(True))
+            bot_count = db.session.scalars(query).all()
+
+            print(f"Found {len(bot_count)} bots online")
+            if len(bot_count) == 4:
+                print("  Found enough bots online to start. Starting to check for users.")
+                stmt = db.select(User).where(User.bot.is_(False), User.online.is_(True))
+                online_users = db.session.scalars(stmt).all()
+                print(f"Found {len(online_users)} users online")
+                return # Break out of the Bot Connection Check Loop
+
+        sio.sleep(5)
+
+
+def next_online_user():
+    with app.app_context():
+        stmt = db.select(User).where(User.bot.is_(False), User.online.is_(True))
+        online_users = db.session.scalars(stmt).all()
+        for user in online_users:
+            yield user
+
+
+def next_online_bot():
+    with app.app_context():
+        stmt = db.select(User).where(User.bot.is_(True), User.online.is_(True))
+        online_users = db.session.scalars(stmt).all()
+        for bot in online_users:
+            yield bot
+
+
+def next_online_player():
+    for user in next_online_user():
+        yield user
+
+    for bot in next_online_bot():
+        yield bot
+
+
 def background_thread():
     global game_world
 
     while True:
         if game_world is None:
+            wait_for_bot_connections()
             game_world = GameWorld(sio, 100, 100)
 
             # TODO: Choose the players or assign bots to the tanks
+            tanks = []
+            tanks.append(Tank(f"{uuid.uuid4()}", 10, 10, Direction.RIGHT))
+            tanks.append(Tank(f"{uuid.uuid4()}", 10, 90, Direction.DOWN))
+            tanks.append(Tank(f"{uuid.uuid4()}", 90, 90, Direction.LEFT))
+            tanks.append(Tank(f"{uuid.uuid4()}", 90, 10, Direction.UP))
 
-            # Create 4 tanks and add them to the game world
-            with app.app_context():
-                stmt = db.select(User).where(User.username.is_("testy1"))
-                user = db.session.scalars(stmt).one_or_none()
-                if user:
-                    tank_id = f'{uuid.uuid4()}'
-                    tank1 = Tank(f"{uuid.uuid4()}", 10, 10, Direction.RIGHT)
-                    game_world.add_tank(tank1)
-                    user.tank = tank_id
-                    # db.session.commit()
-                    sio.emit('game_start', {'data': tank_id}, room=user.sid)
-
-
-            with app.app_context():
-                stmt = db.select(User).where(User.username.is_("testy2"))
-                user = db.session.scalars(stmt).one_or_none()
-                if user:
-                    tank_id = f'{uuid.uuid4()}'
-                    tank2 = Tank(f"{uuid.uuid4()}", 10, 90, Direction.DOWN)
-                    game_world.add_tank(tank2)
-                    user.tank = tank_id
-                    # db.session.commit()
-                    sio.emit('game_start', {'data': tank_id}, room=user.sid)
-
-            with app.app_context():
-                stmt = db.select(User).where(User.username.is_("testy3"))
-                user = db.session.scalars(stmt).one_or_none()
-                if user:
-                    tank_id = f'{uuid.uuid4()}'
-                    tank3 = Tank(tank_id, 90, 90, Direction.LEFT)
-                    game_world.add_tank(tank3)
-                    user.tank = tank_id
-                    db.session.commit()
-                    sio.emit('game_start', {'data': tank_id}, room=user.sid)
-
-            with app.app_context():
-                stmt = db.select(User).where(User.username.is_("testy4"))
-                user = db.session.scalars(stmt).one_or_none()
-                if user:
-                    tank_id = f'{uuid.uuid4()}'
-                    tank4 = Tank(tank_id, 90, 10, Direction.UP)
-                    game_world.add_tank(tank4)
-                    user.tank = tank_id
-                    db.session.commit()
-                    sio.emit('game_start', {'data': tank_id}, room=user.sid)
-
+            for (tank, player) in zip(tanks, next_online_player()):
+                game_world.add_tank(tank)
+                player.tank = tank.name
+                sio.emit('game_start', {'data': tank.name}, room=player.sid)
 
         sio.sleep(1)
         game_world.update()
@@ -134,7 +142,7 @@ def disconnect(sid):
             user.online = False
             user.sid = None
             db.session.commit()
-        print(f'Client disconnected [{user.username}, {sid}]')
+            print(f'Client disconnected [{user.username}, {sid}]')
 
 
 @sio.event
