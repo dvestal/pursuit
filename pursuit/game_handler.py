@@ -3,7 +3,6 @@
 import uuid
 
 from flask import Blueprint
-import sqlalchemy
 from werkzeug.security import check_password_hash
 
 from . import app, db, sio
@@ -68,29 +67,28 @@ def background_thread():
 
     while True:
         if game_world is None:
-            wait_for_bot_connections()
+            # wait_for_bot_connections()
             game_world = GameWorld(sio, 100, 100)
 
-            # TODO: Choose the players or assign bots to the tanks
-            tanks = []
-            tanks.append(Tank(f"{uuid.uuid4()}", 10, 10, Direction.RIGHT))
-            tanks.append(Tank(f"{uuid.uuid4()}", 10, 90, Direction.DOWN))
-            tanks.append(Tank(f"{uuid.uuid4()}", 90, 90, Direction.LEFT))
-            tanks.append(Tank(f"{uuid.uuid4()}", 90, 10, Direction.UP))
+            # # TODO: Choose the players or assign bots to the tanks
+            # tanks = []
+            # tanks.append(Tank(f"{uuid.uuid4()}", 10, 10, Direction.RIGHT))
+            # tanks.append(Tank(f"{uuid.uuid4()}", 10, 90, Direction.DOWN))
+            # tanks.append(Tank(f"{uuid.uuid4()}", 90, 90, Direction.LEFT))
+            # tanks.append(Tank(f"{uuid.uuid4()}", 90, 10, Direction.UP))
 
-            for (tank, player) in zip(tanks, next_online_player()):
-                game_world.add_tank(tank)
-                player.tank = tank.name
-                sio.emit('game_start', {'data': tank.name}, room=player.sid)
+            # for (tank, player) in zip(tanks, next_online_player()):
+            #     game_world.add_tank(tank)
+            #     player.tank = tank.name
+            #     sio.emit('game_start', {'data': tank.name}, room=player.sid)
 
         sio.sleep(1)
         game_world.update()
 
-        if game_world.check_end_game():
-            game_world = None
-            sio.emit('game_end', {'data': 'game over'})
-            continue
-
+        # if game_world.check_end_game():
+        #     game_world = None
+        #     sio.emit('game_end', {'data': 'game over'})
+        #     continue
 
         game_world_update_message = game_world.to_json()
         sio.emit('game_update', {'data': f'{game_world_update_message}'})
@@ -115,9 +113,17 @@ def authenticate(sid, message):
             # update record to mark user online and their sid
             user.online = True
             user.sid = sid
+
+            print(f"authenticate: tank [{user.tank}]")
+
+            if not user.tank or not game_world.find_tank(user.tank):
+                tank_name = game_world.spawn_tank()
+                user.tank = tank_name
             db.session.commit()
-            data_object['data'] = "SUCCESSFUL"
+
             data_object['tank'] = user.tank
+            data_object['data'] = "SUCCESSFUL"
+
 
         sio.emit('auth_response', data_object, room=sid)
 
@@ -128,8 +134,8 @@ def disconnect_request(sid):
 
 
 @sio.event
-def connect(sid, environ):
-    print(f'Client connected: {environ}')
+def connect(sid, _environ):
+    print(f'Client connected: {sid}')
     sio.emit('auth_request', {'data': f'{sid}'}, room=sid)
 
 
@@ -166,11 +172,9 @@ def tank_action_change_direction(sid, message):
         stmt = db.select(User).where(User.sid.is_(sid))
         user = db.session.scalars(stmt).one_or_none()
         if user:
-            tank = next((t for t in game_world.tanks if t.name == user.tank), None)
-            if tank:
-                direction = Direction[message['data']]
-                print(f'tank_action_change_direction: [{user.username} {tank.name} {tank.direction} {direction}]')
-                tank.direction = direction
+            direction = Direction[message['data']]
+            print(f'tank_action_change_direction: [{user.username} {user.tank} {direction}]')
+            game_world.set_tank_direction(user.tank, direction)
 
 
 @sio.event
@@ -179,11 +183,9 @@ def tank_action_change_speed(sid, message):
         stmt = db.select(User).where(User.sid.is_(sid))
         user = db.session.scalars(stmt).one_or_none()
         if user:
-            tank = next((t for t in game_world.tanks if t.name == user.tank), None)
-            if tank:
-                velocity = int(message['data'])
-                print(f'tank_action_change_speed: [{user.username} {tank.name} {tank.velocity} {velocity}]')
-                tank.velocity = velocity
+            velocity = int(message['data'])
+            print(f'tank_action_change_speed: [{user.username} {user.tank} {velocity}]')
+            game_world.set_tank_velocity(user.tank, velocity)
 
 
 @sio.event
@@ -192,11 +194,8 @@ def tank_action_shoot(sid):
         stmt = db.select(User).where(User.sid.is_(sid))
         user = db.session.scalars(stmt).one_or_none()
         if user:
-            tank = next((t for t in game_world.tanks if t.name == user.tank), None)
-            if tank:
-                print(f'tank_action_shoot: [{user.username} {tank.name} {tank.x} {tank.y} {tank.direction}]')
-                bullet = Bullet(tank.x, tank.y, tank.direction)
-                game_world.add_bullet(bullet)
+            print(f'tank_action_shoot: [{user.username}]')
+            game_world.spawn_bullet(user.tank)
 
 # @sio.event
 # def my_event(sid, message):

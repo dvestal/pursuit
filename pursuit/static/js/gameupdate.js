@@ -11,7 +11,7 @@ $(document).ready(function(){
         const ctx = document.getElementById('game-canvas').getContext('2d');
         ctx.clearRect(0, 0, 600, 600);
 
-        ctx.font = "30px Arial";
+        ctx.font = "20px Arial";
         ctx.fillStyle = "#000000";
 
         game_update = JSON.parse(msg.data);
@@ -31,7 +31,7 @@ $(document).ready(function(){
                 tank_text = ">T";
             }
 
-            ctx.fillText(tank_text, tank.x * 6, tank.y * 6);
+            ctx.fillText(tank_text, tank.x * 4, tank.y * 4);
         }
 
         for (let i = 0; i < game_update.bullets.length; i++) {
@@ -48,7 +48,7 @@ $(document).ready(function(){
                 bullet_text = ">B";
             }
 
-            ctx.fillText(bullet_text, bullet.x * 6, bullet.y * 6);
+            ctx.fillText(bullet_text, bullet.x * 4, bullet.y * 4);
         }
     });
 
