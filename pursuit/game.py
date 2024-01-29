@@ -16,11 +16,10 @@ class Direction(Enum):
 @component
 class Tank:
     name: str = None
-    direction: Direction = Direction.UP
 
 @component
 class Bullet:
-    direction: Direction
+    pass
 
 @component
 class Position:
@@ -29,8 +28,8 @@ class Position:
 
 @component
 class Velocity:
-    x: int = 0
-    y: int = 0
+    speed: int = 0
+    direction: Direction = Direction.UP
 
 class GameWorld:
     def __init__(self, sio, width, height):
@@ -39,6 +38,7 @@ class GameWorld:
         self.height = height
 
         esper.add_processor(MovementSystem(self.width, self.height), 999)
+        esper.add_processor(OffscreenBulletSystem(self.width, self.height))
         # esper.add_processor(BulletMovementSystem(self.width, self.height), 999)
 
     def spawn_tank(self):
@@ -49,7 +49,7 @@ class GameWorld:
         y = random.randint(0, 99)
         esper.add_component(tank, Tank(tank_name))
         esper.add_component(tank, Position(x, y))
-        esper.add_component(tank, Velocity(0, 0))
+        esper.add_component(tank, Velocity(0))
         return tank_name
 
     def find_tank(self, name) -> (int, Tank):
@@ -61,26 +61,15 @@ class GameWorld:
     def set_tank_direction(self, name, direction):
         (ent, tank) = self.find_tank(name)
         if tank:
-            tank.direction = direction
-
             vel = esper.component_for_entity(ent, Velocity)
-            new_vel = convert_velocity_direction(vel, tank.direction, direction)
-            vel.x = new_vel.x
-            vel.y = new_vel.y
+            vel.direction = direction
 
 
     def set_tank_velocity(self, name, speed):
         (ent, tank) = self.find_tank(name)
         if tank:
             vel = esper.component_for_entity(ent, Velocity)
-            if tank.direction == Direction.UP:
-                vel.y = speed
-            if tank.direction == Direction.DOWN:
-                vel.y = speed * -1
-            if tank.direction == Direction.LEFT:
-                vel.x = speed * -1
-            if tank.direction == Direction.RIGHT:
-                vel.x = speed
+            vel.speed = speed
 
 
     def spawn_bullet(self, name):
@@ -88,16 +77,11 @@ class GameWorld:
         if tank:
             bullet = esper.create_entity()
             tank_pos = esper.component_for_entity(ent, Position)
-            esper.add_component(bullet, Bullet(direction=tank.direction))
+            tank_vel = esper.component_for_entity(ent, Velocity)
+            esper.add_component(bullet, Bullet())
             esper.add_component(bullet, Position(tank_pos.x, tank_pos.y))
-            if tank.direction == Direction.UP:
-                esper.add_component(bullet, Velocity(0, 2))
-            if tank.direction == Direction.DOWN:
-                esper.add_component(bullet, Velocity(0, -2))
-            if tank.direction == Direction.LEFT:
-                esper.add_component(bullet, Velocity(-2, 0))
-            if tank.direction == Direction.RIGHT:
-                esper.add_component(bullet, Velocity(2, 0))
+            esper.add_component(bullet, Velocity(2, tank_vel.direction))
+
 
 
     def update(self):
@@ -134,8 +118,8 @@ class GameWorld:
                 "name": tank.name,
                 "x": pos.x,
                 "y": pos.y,
-                "direction": tank.direction.name,
-                "velocity": speed_from_velocity_and_direction(vel, tank.direction)
+                "direction": vel.direction.name,
+                "velocity": vel.speed
             }
             data["tanks"].append(tank_data)
 
@@ -143,8 +127,8 @@ class GameWorld:
             bullet_data = {
                 "x": pos.x,
                 "y": pos.y,
-                "direction": bullet.direction.name,
-                "velocity": speed_from_velocity_and_direction(vel, bullet.direction)
+                "direction": vel.direction.name,
+                "velocity": vel.speed
             }
             data["bullets"].append(bullet_data)
 
@@ -162,9 +146,33 @@ class MovementSystem:
 
     def process(self):
         for ent, (pos, vel) in esper.get_components(Position, Velocity):
-            pos.x += vel.x
-            pos.y += vel.y
+            if vel.direction == Direction.UP:
+                pos.y += vel.speed
+            if vel.direction == Direction.DOWN:
+                pos.y -= vel.speed
+            if vel.direction == Direction.LEFT:
+                pos.x -= vel.speed
+            if vel.direction == Direction.RIGHT:
+                pos.x += vel.speed
 
+            if esper.has_component(ent, Tank):
+                pos.x = max(0, min(pos.x, self.max_width))
+                pos.y = max(0, min(pos.y, self.max_height))
+
+
+class OffscreenBulletSystem:
+
+    max_width: int
+    max_height: int
+
+    def __init__(self, max_width, max_height):
+        self.max_width = max_width
+        self.max_height = max_height
+
+    def process(self):
+        for ent, (bullet, pos) in esper.get_components(Bullet, Position):
+            if pos.x < 0 or pos.x > self.max_width or pos.y < 0 or pos.y > self.max_height:
+                esper.delete_entity(ent)
 
 def speed_from_velocity_and_direction(velocity, direction):
     if direction == Direction.UP or direction == Direction.DOWN:
